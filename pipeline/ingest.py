@@ -7,8 +7,8 @@ import pandas as pd
 
 # Candidate AACT ZIP paths, searched in order
 _AACT_ZIP_CANDIDATES = [
+    Path(r"C:\Projects\hfpef_registry_calibration\data\aact\20260219_export_ctgov.zip"),
     Path(r"C:\Users\user\Pairwise70\hfpef_registry_calibration\data\aact\20260219_export_ctgov.zip"),
-    Path(r"C:\Users\user\projects\transportability-meta-frontier\data\aact_downloads\20260327_export_ctgov.zip"),
 ]
 
 
