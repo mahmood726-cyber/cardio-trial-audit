@@ -1,5 +1,6 @@
-data/
-manuscript/
+data/raw/
+data/results/dashboard.json
+manuscript/tables/trial_level_results.csv
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -1,0 +1,11 @@
+detector,n_detected,n_total,detection_rate,mean_severity_when_detected
+ghost_protocols,33223,54272,0.6122,0.8866
+outcome_switching,0,54272,0.0,0.0
+population_distortion,12926,54272,0.2382,0.3621
+sample_size_decay,3893,54272,0.0717,0.5109
+sponsor_concentration,5179,54272,0.0954,0.3471
+geographic_shifts,1274,54272,0.0235,0.9572
+results_delay,29141,54272,0.5369,0.8011
+endpoint_softening,9977,54272,0.1838,0.9892
+comparator_manipulation,3523,54272,0.0649,0.4906
+statistical_fragility,0,54272,0.0,0.0
