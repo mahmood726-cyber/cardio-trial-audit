@@ -86,7 +86,10 @@ def load_aact_table(
                 f"Table '{table_name}' not found in ZIP. "
                 f"Available: {[n.split('/')[-1].replace('.txt', '') for n in names if n.endswith('.txt')]}"
             )
-        with zf.open(match[0]) as f:
+        # Prefer exact filename match (e.g., "conditions.txt" over "browse_conditions.txt")
+        exact = [n for n in match if n.split("/")[-1] == filename]
+        target = exact[0] if exact else match[0]
+        with zf.open(target) as f:
             text = TextIOWrapper(f, encoding="utf-8")
             df = pd.read_csv(
                 text,
