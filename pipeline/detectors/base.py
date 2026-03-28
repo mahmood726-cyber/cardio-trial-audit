@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+# Snapshot date of the AACT data used by all time-dependent detectors.
+# All detectors should import this instead of defining their own _NOW.
+AACT_SNAPSHOT_DATE = pd.Timestamp("2026-02-19")
+
 
 @dataclass
 class DetectorResult:

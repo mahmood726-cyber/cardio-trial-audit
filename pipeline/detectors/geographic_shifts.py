@@ -25,7 +25,8 @@ _HIGH_INCOME_COUNTRIES = frozenset({
     "Israel", "Singapore", "Hong Kong",
     "Taiwan", "United Arab Emirates", "Qatar", "Kuwait", "Bahrain",
     "Saudi Arabia", "Oman",
-    "Poland", "Hungary", "Romania", "Bulgaria",  # Upper-middle but often grouped HIC
+    "Poland", "Hungary",  # EU/OECD with EMA oversight — keep as HIC
+    # P1-11: Romania and Bulgaria removed — classified as UMIC by World Bank
     "Chile", "Uruguay", "Panama",
     "Puerto Rico", "Guam",
 })

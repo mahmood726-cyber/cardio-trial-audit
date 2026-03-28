@@ -1,11 +1,25 @@
-"""Temporal trend analysis — yearly and binned aggregations."""
+"""Temporal trend analysis — yearly and binned aggregations.
+
+P1-1: Added maturity_filter parameter for right-truncation correction
+in time-dependent detectors (ghost_protocols, results_delay).
+"""
 import numpy as np
 import pandas as pd
 
 from pipeline.composite import DETECTOR_NAMES
+from pipeline.detectors.base import AACT_SNAPSHOT_DATE
+
+# Detectors that require elapsed time and are subject to right-truncation bias
+_TIME_DEPENDENT_DETECTORS = {"ghost_protocols", "results_delay"}
+# Minimum months since primary_completion_date for a trial to be eligible
+# for time-dependent detection (13 months = FDAAA 801 default grace)
+_MATURITY_CUTOFF_DATE = pd.Timestamp("2025-01-19")  # 13 months before snapshot
 
 
-def compute_yearly_trends(df: pd.DataFrame) -> pd.DataFrame:
+def compute_yearly_trends(
+    df: pd.DataFrame,
+    maturity_filter: bool = False,
+) -> pd.DataFrame:
     """Compute per-year summary statistics from trial-level results.
 
     Parameters
@@ -13,6 +27,10 @@ def compute_yearly_trends(df: pd.DataFrame) -> pd.DataFrame:
     df : pd.DataFrame
         Trial-level results with start_year, flaw_count, composite_severity,
         and {name}_detected / {name}_severity columns.
+    maturity_filter : bool
+        If True, for time-dependent detectors (ghost_protocols, results_delay),
+        only include trials with primary_completion_date before the maturity
+        cutoff in the denominator. Adds {name}_eligible_n columns.
 
     Returns
     -------
@@ -21,6 +39,7 @@ def compute_yearly_trends(df: pd.DataFrame) -> pd.DataFrame:
         - year, n_trials
         - {name}_rate (fraction detected), {name}_mean_severity
         - composite_mean, mean_flaw_count
+        - {name}_eligible_n (if maturity_filter=True, for time-dependent detectors)
     """
     if "start_year" not in df.columns:
         raise ValueError("DataFrame must contain 'start_year' column")
@@ -29,6 +48,13 @@ def compute_yearly_trends(df: pd.DataFrame) -> pd.DataFrame:
     work["start_year"] = pd.to_numeric(work["start_year"], errors="coerce")
     work = work.dropna(subset=["start_year"])
     work["start_year"] = work["start_year"].astype(int)
+
+    # P1-1: Compute maturity eligibility mask
+    if maturity_filter and "primary_completion_date" in work.columns:
+        pcd = pd.to_datetime(work["primary_completion_date"], errors="coerce")
+        work["_mature"] = pcd.notna() & (pcd < _MATURITY_CUTOFF_DATE)
+    else:
+        work["_mature"] = True
 
     present = [
         name for name in DETECTOR_NAMES
@@ -52,6 +78,21 @@ def compute_yearly_trends(df: pd.DataFrame) -> pd.DataFrame:
     grouped = work.groupby("start_year")
     trends = grouped.agg(**agg_dict).reset_index()
     trends = trends.rename(columns={"start_year": "year"})
+
+    # P1-1: Add eligible_n for time-dependent detectors
+    if maturity_filter:
+        for name in present:
+            if name in _TIME_DEPENDENT_DETECTORS:
+                col_det = f"{name}_detected"
+                eligible = work[work["_mature"]].groupby("start_year").agg(
+                    **{
+                        f"{name}_eligible_n": ("start_year", "count"),
+                        f"_{name}_eligible_rate": (col_det, "mean"),
+                    }
+                ).reset_index().rename(columns={"start_year": "year"})
+                trends = trends.merge(eligible[["year", f"{name}_eligible_n"]], on="year", how="left")
+                trends[f"{name}_eligible_n"] = trends[f"{name}_eligible_n"].fillna(0).astype(int)
+
     trends = trends.sort_values("year").reset_index(drop=True)
 
     return trends

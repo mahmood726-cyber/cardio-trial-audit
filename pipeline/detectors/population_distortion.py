@@ -12,8 +12,12 @@ import pandas as pd
 from pipeline.detectors.base import BaseDetector, DetectorResult
 
 # Expected median ages by CV subdomain (from epidemiology)
+# P1-10: HF set to 72 as compromise between HFrEF (~67) and HFpEF (~76).
+# HFrEF trials (PARADIGM-HF, DAPA-HF) enrol younger patients (~67);
+# HFpEF trials (EMPEROR-Preserved, DELIVER) enrol older (~76).
+# 72 is the weighted average assuming ~55% HFrEF / ~45% HFpEF trial mix.
 _SUBDOMAIN_MEDIAN_AGE: dict[str, float] = {
-    "HF": 76.0,
+    "HF": 72.0,
     "CAD": 68.0,
     "arrhythmia": 72.0,
     "hypertension": 65.0,
@@ -25,6 +29,7 @@ _SUBDOMAIN_MEDIAN_AGE: dict[str, float] = {
 }
 
 # Comorbidity exclusion patterns (search in exclusion criteria section)
+# P1-9: Added COPD and frailty patterns
 _COMORBIDITY_PATTERNS = [
     (re.compile(r"(?i)\b(chronic kidney disease|ckd|renal insufficiency|egfr\s*<)\b"), "CKD"),
     (re.compile(r"(?i)\b(diabetes|diabetic|hba1c)\b"), "diabetes"),
@@ -33,6 +38,8 @@ _COMORBIDITY_PATTERNS = [
     (re.compile(r"(?i)\b(malignancy|cancer|neoplasm|tumor)\b"), "cancer"),
     (re.compile(r"(?i)\b(anemia|hemoglobin\s*<|hgb\s*<)\b"), "anemia"),
     (re.compile(r"(?i)\b(obesity|bmi\s*>|body mass index\s*>)\b"), "obesity"),
+    (re.compile(r"(?i)\b(copd|chronic obstructive|pulmonary disease|emphysema)\b"), "COPD"),
+    (re.compile(r"(?i)\b(frail|frailty|poor functional status|bedridden)\b"), "frailty"),
 ]
 
 

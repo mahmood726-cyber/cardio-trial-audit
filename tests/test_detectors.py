@@ -211,6 +211,40 @@ class TestGhostProtocols:
         result = GhostProtocolsDetector().detect(df)
         assert result.severity[0] <= 1.0
 
+    def test_type_a_uses_study_first_posted_date(self):
+        """P1-3: Type A should use study_first_posted_date when available."""
+        df = _make_master_df([{
+            "overall_status": "WITHDRAWN",
+            "start_date": pd.Timestamp("2024-01-01"),  # Recent — would not flag
+            "study_first_posted_date": pd.Timestamp("2019-01-01"),  # Old — should flag
+            "has_results": False,
+        }])
+        result = GhostProtocolsDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        assert "Type A" in result.detail[0]
+
+    def test_type_c_extended_grace(self):
+        """P0-3: Trials with result_agreements get 36-month grace."""
+        df = _make_master_df([{
+            "overall_status": "COMPLETED",
+            "primary_completion_date": pd.Timestamp("2024-06-01"),  # ~20 months ago
+            "has_results": False,
+            "results_first_posted_date": pd.NaT,
+        }])
+        # Without extension: 20 months > 13 months grace -> flagged
+        result_no_ext = GhostProtocolsDetector().detect(df, raw_tables={})
+        assert result_no_ext.flaw_detected[0] is True
+
+        # With extension: 20 months < 36 months grace -> NOT flagged
+        ra = pd.DataFrame({
+            "nct_id": ["NCT00000001"],
+            "restrictive_agreement": ["Results may be delayed per sponsor agreement"],
+        })
+        result_ext = GhostProtocolsDetector().detect(
+            df, raw_tables={"result_agreements": ra}
+        )
+        assert result_ext.flaw_detected[0] is False
+
 
 class TestOutcomeSwitching:
     def test_matching_outcomes_not_flagged(self):
@@ -306,6 +340,30 @@ class TestPopulationDistortion:
         result = PopulationDistortionDetector().detect(df)
         assert result.flaw_detected[0] is True
         assert "Gender restricted" in result.detail[0]
+
+    def test_copd_exclusion_detected(self):
+        """P1-9: COPD exclusion should be detected in comorbidity list."""
+        df = _make_master_df([{
+            "max_age_years": 90.0,
+            "cv_subdomains": ["HF"],
+            "criteria": "Inclusion: HF\nExclusion Criteria: COPD, diabetes, cancer",
+            "gender": "All",
+        }])
+        result = PopulationDistortionDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        assert "COPD" in result.detail[0]
+
+    def test_frailty_exclusion_detected(self):
+        """P1-9: Frailty exclusion should be detected in comorbidity list."""
+        df = _make_master_df([{
+            "max_age_years": 90.0,
+            "cv_subdomains": ["HF"],
+            "criteria": "Inclusion: HF\nExclusion Criteria: frailty, diabetes, cancer",
+            "gender": "All",
+        }])
+        result = PopulationDistortionDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        assert "frailty" in result.detail[0]
 
 
 class TestSampleSizeDecay:
@@ -443,6 +501,33 @@ class TestGeographicShifts:
         result = GeographicShiftsDetector().detect(df, raw_tables={})
         assert result.flaw_detected[0] is False
 
+    def test_romania_bulgaria_are_lmic(self):
+        """P1-11: Romania and Bulgaria classified as UMIC, not HIC."""
+        df = _make_master_df([{}])
+        facilities = pd.DataFrame({
+            "nct_id": ["NCT00000001"] * 4,
+            "country": ["Romania", "Bulgaria", "Romania", "United States"],
+        })
+        result = GeographicShiftsDetector().detect(
+            df, raw_tables={"facilities": facilities}
+        )
+        # 3/4 sites are LMIC (Romania+Bulgaria) = 75%
+        assert result.flaw_detected[0] is True
+        assert result.severity[0] == pytest.approx(0.75, abs=0.01)
+
+    def test_poland_hungary_still_hic(self):
+        """P1-11: Poland and Hungary remain HIC (EU/OECD)."""
+        df = _make_master_df([{}])
+        facilities = pd.DataFrame({
+            "nct_id": ["NCT00000001"] * 4,
+            "country": ["Poland", "Hungary", "United States", "Germany"],
+        })
+        result = GeographicShiftsDetector().detect(
+            df, raw_tables={"facilities": facilities}
+        )
+        # All HIC = 0% LMIC
+        assert result.flaw_detected[0] is False
+
 
 class TestResultsDelay:
     def test_compliant_not_flagged(self):
@@ -456,7 +541,7 @@ class TestResultsDelay:
         assert result.flaw_detected[0] is False
 
     def test_moderate_delay_flagged(self):
-        """Results posted 18 months after completion — severity 0.3."""
+        """Results posted 18 months after completion — severity 0.3 (Final Rule era)."""
         df = _make_master_df([{
             "primary_completion_date": pd.Timestamp("2022-01-01"),
             "results_first_posted_date": pd.Timestamp("2023-07-01"),
@@ -467,7 +552,7 @@ class TestResultsDelay:
         assert result.severity[0] == pytest.approx(0.3, abs=0.01)
 
     def test_severe_delay_flagged(self):
-        """Results posted 30 months after completion — severity 0.6."""
+        """Results posted 30 months after completion — severity 0.6 (Final Rule era)."""
         df = _make_master_df([{
             "primary_completion_date": pd.Timestamp("2021-01-01"),
             "results_first_posted_date": pd.Timestamp("2023-07-01"),
@@ -478,7 +563,7 @@ class TestResultsDelay:
         assert result.severity[0] == pytest.approx(0.6, abs=0.01)
 
     def test_no_results_completed_flagged(self):
-        """Completed trial, no results, 36+ months past PCD."""
+        """Completed trial, no results, 36+ months past PCD (Final Rule era)."""
         df = _make_master_df([{
             "primary_completion_date": pd.Timestamp("2021-01-01"),
             "results_first_posted_date": pd.NaT,
@@ -496,6 +581,42 @@ class TestResultsDelay:
         result = ResultsDelayDetector().detect(df)
         assert result.flaw_detected[0] is False
 
+    def test_pre_fdaaa_reduced_severity(self):
+        """P0-2: Pre-FDAAA era (PCD < 2008) gets severity *= 0.1."""
+        df = _make_master_df([{
+            "primary_completion_date": pd.Timestamp("2007-01-01"),
+            "results_first_posted_date": pd.Timestamp("2008-07-01"),
+            "has_results": True,
+        }])
+        result = ResultsDelayDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        # 18 months delay => base 0.3, * 0.1 = 0.03
+        assert result.severity[0] == pytest.approx(0.03, abs=0.01)
+
+    def test_fdaaa_era_half_severity(self):
+        """P0-2: FDAAA era (2008-2016) gets severity *= 0.5."""
+        df = _make_master_df([{
+            "primary_completion_date": pd.Timestamp("2012-01-01"),
+            "results_first_posted_date": pd.Timestamp("2013-07-01"),
+            "has_results": True,
+        }])
+        result = ResultsDelayDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        # 18 months delay => base 0.3, * 0.5 = 0.15
+        assert result.severity[0] == pytest.approx(0.15, abs=0.01)
+
+    def test_fdaaa_violation_forces_max(self):
+        """P0-2: fdaaa801_violation=True forces severity to 1.0."""
+        df = _make_master_df([{
+            "primary_completion_date": pd.Timestamp("2022-01-01"),
+            "results_first_posted_date": pd.Timestamp("2023-07-01"),
+            "has_results": True,
+            "fdaaa801_violation": True,
+        }])
+        result = ResultsDelayDetector().detect(df)
+        assert result.flaw_detected[0] is True
+        assert result.severity[0] == 1.0
+
 
 class TestEndpointSoftening:
     def test_classify_hard(self):
@@ -512,7 +633,15 @@ class TestEndpointSoftening:
     def test_classify_pro(self):
         assert classify_endpoint("KCCQ total score at 12 months") == "pro"
         assert classify_endpoint("Quality of life (EQ-5D)") == "pro"
-        assert classify_endpoint("6-minute walk distance") == "pro"
+
+    def test_classify_6mwt_as_surrogate(self):
+        """P0-4: 6MWT moved from PRO to surrogate (functional assessment)."""
+        assert classify_endpoint("6-minute walk distance") == "surrogate"
+        assert classify_endpoint("6MWT at 12 weeks") == "surrogate"
+
+    def test_classify_nyha_as_surrogate(self):
+        """P0-4: NYHA moved from PRO to surrogate (functional assessment)."""
+        assert classify_endpoint("NYHA functional class") == "surrogate"
 
     def test_all_surrogate_flagged(self):
         df = _make_master_df([{}])
@@ -539,7 +668,8 @@ class TestEndpointSoftening:
         )
         assert result.flaw_detected[0] is False
 
-    def test_mixed_flagged_lower_severity(self):
+    def test_mixed_hard_surrogate_flagged(self):
+        """P1-4: Mixed hard+surrogate severity = 0.5."""
         df = _make_master_df([{}])
         outcomes = pd.DataFrame({
             "nct_id": ["NCT00000001", "NCT00000001"],
@@ -551,6 +681,34 @@ class TestEndpointSoftening:
         )
         assert result.flaw_detected[0] is True
         assert result.severity[0] == 0.5
+
+    def test_pro_only_severity_07(self):
+        """P1-4: PRO-only primaries severity = 0.7."""
+        df = _make_master_df([{}])
+        outcomes = pd.DataFrame({
+            "nct_id": ["NCT00000001"],
+            "outcome_type": ["PRIMARY"],
+            "title": ["KCCQ total score at 12 months"],
+        })
+        result = EndpointSofteningDetector().detect(
+            df, raw_tables={"outcomes": outcomes}
+        )
+        assert result.flaw_detected[0] is True
+        assert result.severity[0] == pytest.approx(0.7, abs=0.01)
+
+    def test_mixed_hard_pro_severity_03(self):
+        """P1-4: Mixed hard+PRO severity = 0.3."""
+        df = _make_master_df([{}])
+        outcomes = pd.DataFrame({
+            "nct_id": ["NCT00000001", "NCT00000001"],
+            "outcome_type": ["PRIMARY", "PRIMARY"],
+            "title": ["All-cause mortality", "KCCQ total score at 12 months"],
+        })
+        result = EndpointSofteningDetector().detect(
+            df, raw_tables={"outcomes": outcomes}
+        )
+        assert result.flaw_detected[0] is True
+        assert result.severity[0] == pytest.approx(0.3, abs=0.01)
 
 
 class TestComparatorManipulation:
@@ -597,6 +755,28 @@ class TestComparatorManipulation:
         assert result.severity[0] == pytest.approx(0.2, abs=0.01)
 
     def test_no_soc_subdomain_not_flagged(self):
+        """Subdomain 'other-CV' has no established SOC — not flagged."""
+        df = _make_master_df([{
+            "cv_subdomains": ["other-CV"],
+        }])
+        interventions = pd.DataFrame({
+            "nct_id": ["NCT00000001"],
+            "intervention_type": ["DRUG"],
+            "name": ["Placebo"],
+        })
+        design_groups = pd.DataFrame({
+            "nct_id": ["NCT00000001"],
+            "group_type": ["PLACEBO_COMPARATOR"],
+            "title": ["Placebo"],
+            "description": ["Matching placebo"],
+        })
+        result = ComparatorManipulationDetector().detect(
+            df, raw_tables={"interventions": interventions, "design_groups": design_groups}
+        )
+        assert result.flaw_detected[0] is False
+
+    def test_prevention_has_soc_now(self):
+        """P1-8: Prevention subdomain now has SOC — placebo should flag."""
         df = _make_master_df([{
             "cv_subdomains": ["prevention"],
         }])
@@ -614,7 +794,7 @@ class TestComparatorManipulation:
         result = ComparatorManipulationDetector().detect(
             df, raw_tables={"interventions": interventions, "design_groups": design_groups}
         )
-        assert result.flaw_detected[0] is False
+        assert result.flaw_detected[0] is True
 
     def test_active_comparator_not_flagged(self):
         df = _make_master_df([{

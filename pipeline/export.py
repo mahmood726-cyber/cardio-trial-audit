@@ -1,4 +1,7 @@
-"""Export pipeline results for dashboard (JSON) and manuscript (CSV)."""
+"""Export pipeline results for dashboard (JSON) and manuscript (CSV).
+
+P1-5: CSV export sanitizes cells to prevent formula injection.
+"""
 import json
 import math
 from datetime import datetime, timezone
@@ -95,6 +98,32 @@ def _sanitize_for_json(df: pd.DataFrame) -> list[dict]:
     return sanitized
 
 
+# P1-5: Characters that trigger formula injection in spreadsheets.
+# Note: '-' is intentionally excluded to avoid corrupting negative medical values
+# like "-0.5 mmHg".
+_FORMULA_CHARS = frozenset({"=", "+", "@", "\t", "\r"})
+
+
+def _sanitize_csv_cell(value):
+    """Sanitize a single cell value to prevent CSV formula injection.
+
+    Prepends a single quote to string values starting with dangerous characters.
+    Does NOT touch '-' to preserve negative numeric values.
+    """
+    if isinstance(value, str) and value and value[0] in _FORMULA_CHARS:
+        return "'" + value
+    return value
+
+
+def _sanitize_csv_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply CSV formula injection sanitization to all string columns."""
+    result = df.copy()
+    for col in result.columns:
+        if result[col].dtype == object:
+            result[col] = result[col].map(_sanitize_csv_cell)
+    return result
+
+
 def export_dashboard_json(
     results_df: pd.DataFrame,
     trends_df: pd.DataFrame,
@@ -169,6 +198,8 @@ def export_manuscript_csv(
       - trial_level_results.csv: full trial-level data
       - detector_summary.csv: per-detector summary stats
 
+    P1-5: All CSV output is sanitized against formula injection.
+
     Parameters
     ----------
     results_df : pd.DataFrame
@@ -186,9 +217,10 @@ def export_manuscript_csv(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Trial-level results
+    # 1) Trial-level results (sanitized)
     trial_path = output_dir / "trial_level_results.csv"
-    results_df.to_csv(trial_path, index=False, encoding="utf-8")
+    sanitized_results = _sanitize_csv_dataframe(results_df)
+    sanitized_results.to_csv(trial_path, index=False, encoding="utf-8")
 
     # 2) Detector summary
     present = [
@@ -218,7 +250,8 @@ def export_manuscript_csv(
 
     summary_df = pd.DataFrame(summary_rows)
     summary_path = output_dir / "detector_summary.csv"
-    summary_df.to_csv(summary_path, index=False, encoding="utf-8")
+    sanitized_summary = _sanitize_csv_dataframe(summary_df)
+    sanitized_summary.to_csv(summary_path, index=False, encoding="utf-8")
 
     return {
         "trial_level_results.csv": trial_path,

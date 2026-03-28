@@ -6,12 +6,24 @@ Severity tiers:
 - 24-36 months: severity 0.6
 - > 36 months: scaled up to 1.0
 - No results on completed trial: severity based on months since completion
+
+P0-2: FDAAA temporal stratification applied:
+- Pre-FDAAA (PCD < 2008-01-01): severity *= 0.1
+- FDAAA era (2008-2016): severity *= 0.5
+- Final Rule era (2017+): full severity
+- fdaaa801_violation = True: force severity to 1.0
+
+P1-2: Uses AACT_SNAPSHOT_DATE from base module.
+P1-12: Vectorized implementation (no iterrows).
 """
+import numpy as np
 import pandas as pd
 
-from pipeline.detectors.base import BaseDetector, DetectorResult
+from pipeline.detectors.base import AACT_SNAPSHOT_DATE, BaseDetector, DetectorResult
 
-_NOW = pd.Timestamp("2026-02-19")
+# FDAAA 801 temporal boundaries
+_FDAAA_START = pd.Timestamp("2008-01-01")  # FDAAA 801 became law Sept 2007
+_FINAL_RULE_START = pd.Timestamp("2017-01-01")  # Final Rule effective Jan 2017
 
 
 class ResultsDelayDetector(BaseDetector):
@@ -22,69 +34,80 @@ class ResultsDelayDetector(BaseDetector):
     def detect(
         self, master_df: pd.DataFrame, raw_tables: dict | None = None
     ) -> DetectorResult:
-        nct_ids: list[str] = []
-        flags: list[bool] = []
-        severities: list[float] = []
-        details: list[str] = []
+        n = len(master_df)
+        nct_ids = master_df["nct_id"].tolist()
+        flags = [False] * n
+        severities = [0.0] * n
+        details = [""] * n
 
-        for _, row in master_df.iterrows():
-            nct = row["nct_id"]
-            nct_ids.append(nct)
+        # Vectorized column extraction — use column-in-columns check to avoid
+        # DataFrame.get() returning None instead of Series
+        pcd = pd.to_datetime(master_df["primary_completion_date"], errors="coerce") if "primary_completion_date" in master_df.columns else pd.Series([pd.NaT] * n)
+        results_date = pd.to_datetime(master_df["results_first_posted_date"], errors="coerce") if "results_first_posted_date" in master_df.columns else pd.Series([pd.NaT] * n)
+        has_results = master_df["has_results"].fillna(False).astype(bool) if "has_results" in master_df.columns else pd.Series([False] * n)
+        status = master_df["overall_status"].fillna("").str.upper() if "overall_status" in master_df.columns else pd.Series([""] * n)
+        fdaaa_viol = master_df["fdaaa801_violation"].fillna(False).astype(bool) if "fdaaa801_violation" in master_df.columns else pd.Series([False] * n)
 
-            pcd = pd.to_datetime(row.get("primary_completion_date"), errors="coerce")
-            results_date = pd.to_datetime(
-                row.get("results_first_posted_date"), errors="coerce"
-            )
-            has_results = bool(row.get("has_results", False))
-            status = str(row.get("overall_status", "") or "").upper()
+        # Masks
+        pcd_valid = pcd.notna().values
+        results_valid = results_date.notna().values
+        has_res = has_results.values
+        completed_statuses = status.isin(
+            {"COMPLETED", "TERMINATED", "ACTIVE, NOT RECRUITING", "ACTIVE_NOT_RECRUITING"}
+        ).values
 
-            if pd.isna(pcd):
-                flags.append(False)
-                severities.append(0.0)
-                details.append("")
+        # Compute delay months for those with results
+        delay_days = (results_date - pcd).dt.days
+        delay_months = delay_days / 30.44
+
+        # Compute months since completion for those without results
+        months_since = (AACT_SNAPSHOT_DATE - pcd).dt.days / 30.44
+
+        for i in range(n):
+            if not pcd_valid[i]:
                 continue
 
-            if has_results and pd.notna(results_date):
-                # Compute actual delay
-                delay_months = (results_date - pcd).days / 30.44
-                if delay_months <= 12.0:
-                    flags.append(False)
-                    severities.append(0.0)
-                    details.append("")
-                elif delay_months <= 24.0:
-                    flags.append(True)
-                    severities.append(0.3)
-                    details.append(f"Results delay: {delay_months:.0f} months")
-                elif delay_months <= 36.0:
-                    flags.append(True)
-                    severities.append(0.6)
-                    details.append(f"Results delay: {delay_months:.0f} months")
+            sev = 0.0
+            det = ""
+            flagged = False
+
+            if has_res[i] and results_valid[i]:
+                dm = delay_months.iloc[i]
+                if dm <= 12.0:
+                    continue
+                elif dm <= 24.0:
+                    sev = 0.3
+                    det = f"Results delay: {dm:.0f} months"
+                    flagged = True
+                elif dm <= 36.0:
+                    sev = 0.6
+                    det = f"Results delay: {dm:.0f} months"
+                    flagged = True
                 else:
-                    sev = min(0.6 + (delay_months - 36.0) / 48.0, 1.0)
-                    flags.append(True)
-                    severities.append(round(sev, 4))
-                    details.append(f"Results delay: {delay_months:.0f} months")
-            elif not has_results and status in (
-                "COMPLETED", "TERMINATED",
-                "ACTIVE, NOT RECRUITING", "ACTIVE_NOT_RECRUITING",
-            ):
-                # No results at all — compute months since completion
-                months_since = (_NOW - pcd).days / 30.44
-                if months_since > 12.0:
-                    sev = min(months_since / 60.0, 1.0)  # scale over 5 years
-                    flags.append(True)
-                    severities.append(round(sev, 4))
-                    details.append(
-                        f"No results {months_since:.0f}m after completion"
-                    )
-                else:
-                    flags.append(False)
-                    severities.append(0.0)
-                    details.append("")
-            else:
-                flags.append(False)
-                severities.append(0.0)
-                details.append("")
+                    sev = min(0.6 + (dm - 36.0) / 48.0, 1.0)
+                    det = f"Results delay: {dm:.0f} months"
+                    flagged = True
+            elif not has_res[i] and completed_statuses[i]:
+                ms = months_since.iloc[i]
+                if ms > 12.0:
+                    sev = min(ms / 60.0, 1.0)
+                    det = f"No results {ms:.0f}m after completion"
+                    flagged = True
+
+            if flagged:
+                # P0-2: FDAAA temporal stratification
+                pcd_val = pcd.iloc[i]
+                if fdaaa_viol[i]:
+                    # Explicit FDAAA violation recorded — force max severity
+                    sev = 1.0
+                elif pcd_val < _FDAAA_START:
+                    sev *= 0.1  # Pre-mandate era
+                elif pcd_val < _FINAL_RULE_START:
+                    sev *= 0.5  # FDAAA era but rarely enforced
+
+                flags[i] = True
+                severities[i] = round(sev, 4)
+                details[i] = det
 
         return DetectorResult(
             nct_ids=nct_ids,

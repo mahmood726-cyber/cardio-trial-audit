@@ -13,8 +13,12 @@ from pipeline.detectors.base import BaseDetector, DetectorResult
 logger = logging.getLogger(__name__)
 
 # CV conditions with established standard of care
+# P1-8: Added "prevention" and "vascular" subdomains
+# - Prevention: SOC = statin + antiplatelet for secondary prevention
+# - Vascular: SOC = antiplatelet + statin + risk factor management
 _SOC_SUBDOMAINS = frozenset({
     "HF", "CAD", "arrhythmia", "hypertension", "VTE", "structural",
+    "prevention", "vascular",
 })
 
 _PLACEBO_PATTERN = re.compile(

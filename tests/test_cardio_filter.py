@@ -7,6 +7,7 @@ from pipeline.cardio_filter import (
     CV_DEVICE_PATTERNS,
     SUBDOMAIN_RULES,
     is_cv_condition,
+    is_ckd_only_condition,
     is_cv_intervention,
     tag_subdomain,
     filter_cardiology_trials,
@@ -62,6 +63,32 @@ class TestSubdomainTagging:
         tags = tag_subdomain(conditions=["Heart Failure", "Atrial Fibrillation"], interventions=["Apixaban"])
         assert "HF" in tags
         assert "arrhythmia" in tags
+
+
+class TestCKDOnlyCondition:
+    """P0-1: CKD/nephropathy conditions without core CV terms are CKD-only."""
+
+    def test_ckd_alone_is_ckd_only(self):
+        assert is_ckd_only_condition("Chronic Kidney Disease")
+        assert is_ckd_only_condition("Diabetic Nephropathy")
+        assert is_ckd_only_condition("Diabetic Kidney Disease")
+
+    def test_cardiorenal_is_ckd_only(self):
+        # "cardiorenal" matches CKD pattern but not core CV pattern
+        assert is_ckd_only_condition("Cardiorenal Syndrome")
+
+    def test_hf_with_ckd_is_not_ckd_only(self):
+        # Has both CKD and core CV — not CKD-only
+        assert not is_ckd_only_condition("Heart Failure with Chronic Kidney Disease")
+
+    def test_core_cv_is_not_ckd_only(self):
+        assert not is_ckd_only_condition("Heart Failure")
+        assert not is_ckd_only_condition("Coronary Artery Disease")
+        assert not is_ckd_only_condition("Atrial Fibrillation")
+
+    def test_non_cv_is_not_ckd_only(self):
+        assert not is_ckd_only_condition("Breast Cancer")
+        assert not is_ckd_only_condition("Asthma")
 
 
 class TestFilterPipeline:

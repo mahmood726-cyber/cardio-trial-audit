@@ -1,4 +1,8 @@
-"""Detector runner — registry and orchestration for all flaw detectors."""
+"""Detector runner — registry and orchestration for all flaw detectors.
+
+P1-13: Optimized merge strategy — collect detector DataFrames and do a
+single pd.concat(axis=1) join instead of N sequential merges.
+"""
 import logging
 
 import pandas as pd
@@ -68,6 +72,9 @@ def run_all_detectors(
 
     result_df = master_df.copy()
 
+    # P1-13: Collect detector results and do a single concat+join
+    detector_dfs: list[pd.DataFrame] = []
+
     for name, detector in to_run.items():
         logger.info("Running detector: %s", name)
         try:
@@ -79,15 +86,20 @@ def run_all_detectors(
                 )
                 continue
             det_df = dr.to_dataframe(name)
-            # Merge on nct_id to handle potential ordering differences
-            result_df = result_df.merge(
-                det_df, on="nct_id", how="left", suffixes=("", f"_{name}_dup")
-            )
+            detector_dfs.append(det_df.set_index("nct_id"))
         except Exception as e:
             logger.error("Detector %s failed: %s", name, e, exc_info=True)
             # Add empty columns so downstream code doesn't break
-            result_df[f"{name}_detected"] = False
-            result_df[f"{name}_severity"] = 0.0
-            result_df[f"{name}_detail"] = ""
+            empty_df = pd.DataFrame({
+                f"{name}_detected": [False] * len(master_df),
+                f"{name}_severity": [0.0] * len(master_df),
+                f"{name}_detail": [""] * len(master_df),
+            }, index=master_df["nct_id"].values)
+            empty_df.index.name = "nct_id"
+            detector_dfs.append(empty_df)
+
+    if detector_dfs:
+        combined = pd.concat(detector_dfs, axis=1)
+        result_df = result_df.set_index("nct_id").join(combined).reset_index()
 
     return result_df

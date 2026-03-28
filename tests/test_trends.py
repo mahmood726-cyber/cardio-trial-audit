@@ -106,3 +106,28 @@ class TestBinnedTrendsShape:
         df = pd.DataFrame(columns=["start_year"])
         binned = compute_binned_trends(df, bin_size=3)
         assert len(binned) == 0
+
+
+class TestMaturityFilter:
+    """P1-1: Right-truncation correction for time-dependent detectors."""
+
+    def test_maturity_filter_adds_eligible_n(self):
+        df = _make_trend_df(n_years=3, base_year=2020, trials_per_year=5)
+        df["primary_completion_date"] = pd.Timestamp("2023-01-01")
+        trends = compute_yearly_trends(df, maturity_filter=True)
+        assert "ghost_protocols_eligible_n" in trends.columns
+        assert "results_delay_eligible_n" in trends.columns
+
+    def test_maturity_filter_false_no_eligible_n(self):
+        df = _make_trend_df(n_years=3, base_year=2020, trials_per_year=5)
+        df["primary_completion_date"] = pd.Timestamp("2023-01-01")
+        trends = compute_yearly_trends(df, maturity_filter=False)
+        assert "ghost_protocols_eligible_n" not in trends.columns
+
+    def test_recent_trials_excluded_from_eligible(self):
+        """Trials with PCD after 2025-01-19 should have 0 eligible."""
+        df = _make_trend_df(n_years=1, base_year=2024, trials_per_year=5)
+        # All trials have very recent PCD — immature
+        df["primary_completion_date"] = pd.Timestamp("2026-01-01")
+        trends = compute_yearly_trends(df, maturity_filter=True)
+        assert trends["ghost_protocols_eligible_n"].iloc[0] == 0

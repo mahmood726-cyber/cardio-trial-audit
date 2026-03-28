@@ -8,7 +8,10 @@ import pandas as pd
 import pytest
 
 from pipeline.composite import DETECTOR_NAMES
-from pipeline.export import export_dashboard_json, export_manuscript_csv, _NumpyEncoder
+from pipeline.export import (
+    export_dashboard_json, export_manuscript_csv, _NumpyEncoder,
+    _sanitize_csv_cell,
+)
 
 
 def _make_export_df(n: int = 10) -> pd.DataFrame:
@@ -174,6 +177,53 @@ class TestManuscriptCsv:
         assert out_dir.exists()
         for p in paths.values():
             assert p.exists()
+
+
+class TestCsvFormulaSanitization:
+    """P1-5: CSV formula injection prevention."""
+
+    def test_equals_prepended(self):
+        assert _sanitize_csv_cell("=SUM(A1:A2)") == "'=SUM(A1:A2)"
+
+    def test_plus_prepended(self):
+        assert _sanitize_csv_cell("+cmd|' /C calc'!A0") == "'+cmd|' /C calc'!A0"
+
+    def test_at_prepended(self):
+        assert _sanitize_csv_cell("@SUM(A1:A2)") == "'@SUM(A1:A2)"
+
+    def test_tab_prepended(self):
+        assert _sanitize_csv_cell("\tcmd") == "'\tcmd"
+
+    def test_return_prepended(self):
+        assert _sanitize_csv_cell("\rcmd") == "'\rcmd"
+
+    def test_negative_numbers_preserved(self):
+        """Negative values must NOT be prefixed (corrupts medical data)."""
+        assert _sanitize_csv_cell("-0.5 mmHg") == "-0.5 mmHg"
+        assert _sanitize_csv_cell("-1.23") == "-1.23"
+
+    def test_normal_strings_unchanged(self):
+        assert _sanitize_csv_cell("Normal text") == "Normal text"
+        assert _sanitize_csv_cell("NCT00000001") == "NCT00000001"
+
+    def test_non_string_unchanged(self):
+        assert _sanitize_csv_cell(42) == 42
+        assert _sanitize_csv_cell(None) is None
+        assert _sanitize_csv_cell(3.14) == 3.14
+
+    def test_empty_string_unchanged(self):
+        assert _sanitize_csv_cell("") == ""
+
+    def test_csv_export_sanitized(self, tmp_path):
+        """End-to-end: exported CSV has sanitized cells."""
+        df = _make_export_df(3)
+        # Inject a formula cell
+        df.loc[0, "ghost_protocols_detail"] = "=HYPERLINK(\"http://evil.com\")"
+        paths = export_manuscript_csv(df, tmp_path)
+        loaded = pd.read_csv(paths["trial_level_results.csv"])
+        # The '=' should now be prefixed with "'"
+        val = loaded.loc[0, "ghost_protocols_detail"]
+        assert val.startswith("'=")
 
 
 class TestNumpyEncoder:

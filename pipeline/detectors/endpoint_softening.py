@@ -2,11 +2,18 @@
 
 Loads outcomes table, classifies each primary outcome as:
 - hard: mortality, MI, stroke, hospitalization, MACE
-- surrogate: biomarkers, imaging, BP, lab values
+- surrogate: biomarkers, imaging, BP, lab values, 6MWT, NYHA
 - pro: QoL, patient-reported outcomes, symptom scores
 - other: unclassifiable
 
-Severity: all-surrogate = 1.0, mixed (some surrogate, some hard) = 0.5
+P0-4: 6MWT and NYHA moved from PRO to surrogate (they are functional assessments,
+not patient-reported outcomes).
+
+P1-4: Differentiated severity:
+- surrogate-only = 1.0
+- PRO-only = 0.7
+- mixed hard+surrogate = 0.5
+- mixed hard+PRO = 0.3
 """
 import logging
 import re
@@ -30,6 +37,7 @@ _HARD_PATTERNS = re.compile(
     r")\b"
 )
 
+# P0-4: 6MWT and NYHA moved here from PRO (functional assessments, not patient-reported)
 _SURROGATE_PATTERNS = re.compile(
     r"(?i)\b("
     r"blood.pressure|systolic|diastolic|bp.reduction"
@@ -44,6 +52,8 @@ _SURROGATE_PATTERNS = re.compile(
     r"|arterial.stiffness|pulse.wave"
     r"|cardiac.output|cardiac.index"
     r"|infarct.size"
+    r"|6.?minute.walk|6mwd|6mwt"
+    r"|nyha|functional.class"
     r")\b"
 )
 
@@ -51,10 +61,8 @@ _PRO_PATTERNS = re.compile(
     r"(?i)\b("
     r"quality.of.life|qol|eq.?5d|sf.?36|sf.?12"
     r"|kccq|kansas.city.cardiomyopathy"
-    r"|nyha|functional.class"
     r"|symptom.score|symptom.burden"
     r"|patient.reported|patient.global"
-    r"|6.?minute.walk|6mwd|6mwt"
     r"|rose.dyspnea|seattle.angina|saq"
     r"|euroqol|visual.analog|vas"
     r")\b"
@@ -106,17 +114,39 @@ class EndpointSofteningDetector(BaseDetector):
             has_surrogate = "surrogate" in classes
             has_pro = "pro" in classes
 
-            if not has_hard and (has_surrogate or has_pro):
-                # All-surrogate/PRO, no hard endpoints
+            # P1-4: Differentiated severity levels
+            if not has_hard and has_surrogate and not has_pro:
+                # All-surrogate primaries
                 sev = 1.0
+                det = f"Surrogate-only primaries: {', '.join(primaries[:3])}"
+                flags.append(True)
+                severities.append(sev)
+                details.append(det[:200])
+            elif not has_hard and has_pro and not has_surrogate:
+                # PRO-only primaries
+                sev = 0.7
+                det = f"PRO-only primaries: {', '.join(primaries[:3])}"
+                flags.append(True)
+                severities.append(sev)
+                details.append(det[:200])
+            elif not has_hard and (has_surrogate or has_pro):
+                # Mixed surrogate+PRO, no hard
+                sev = 1.0 if has_surrogate else 0.7
                 det = f"All-surrogate/PRO primaries: {', '.join(primaries[:3])}"
                 flags.append(True)
                 severities.append(sev)
                 details.append(det[:200])
             elif has_hard and has_surrogate:
-                # Mixed
+                # Mixed hard+surrogate
                 sev = 0.5
                 det = f"Mixed primaries ({', '.join(set(classes))}): {', '.join(primaries[:3])}"
+                flags.append(True)
+                severities.append(sev)
+                details.append(det[:200])
+            elif has_hard and has_pro and not has_surrogate:
+                # Mixed hard+PRO — lower concern
+                sev = 0.3
+                det = f"Mixed hard+PRO primaries: {', '.join(primaries[:3])}"
                 flags.append(True)
                 severities.append(sev)
                 details.append(det[:200])

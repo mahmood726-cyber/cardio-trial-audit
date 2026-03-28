@@ -6,6 +6,9 @@ Strategy (C+D from design):
   3. Union: trial matches if ANY condition OR ANY intervention is CV
   4. Tag each trial with sub-domains: HF, CAD, arrhythmia, hypertension,
      structural, vascular, prevention, VTE, other-CV
+
+P0-1 fix: CKD/nephropathy conditions now require a CV intervention co-match
+to avoid capturing pure nephrology trials.
 """
 import re
 from typing import Optional
@@ -15,8 +18,8 @@ import pandas as pd
 from pipeline.ingest import load_aact_table
 
 # ── Condition patterns (regex, case-insensitive) ────────────────────────
-CV_CONDITION_PATTERNS = re.compile(
-    r"(?i)\b("
+# Core CV conditions (always included regardless of intervention)
+_CV_CORE_CONDITION_PART = (
     r"heart failure|cardiac failure|cardiomyopathy|myocardial"
     r"|coronary artery disease|coronary heart disease|ischemic heart"
     r"|acute coronary syndrome|angina|myocardial infarction|heart attack"
@@ -35,9 +38,27 @@ CV_CONDITION_PATTERNS = re.compile(
     r"|congenital heart|tetralogy|septal defect"
     r"|cardiac rehabilitation|cardiac surgery|cardiopulmonary"
     r"|cardiovascular"
-    r"|chronic kidney disease|diabetic nephropathy|diabetic kidney"
+)
+
+# CKD/nephropathy patterns — only included when paired with CV intervention
+_CKD_CONDITION_PART = (
+    r"chronic kidney disease|diabetic nephropathy|diabetic kidney"
     r"|cardiorenal"
-    r")\b"
+)
+
+# Combined pattern for any CV match (core + CKD)
+CV_CONDITION_PATTERNS = re.compile(
+    r"(?i)\b(" + _CV_CORE_CONDITION_PART + r"|" + _CKD_CONDITION_PART + r")\b"
+)
+
+# Core-only pattern (excludes CKD/nephropathy)
+_CV_CORE_CONDITION_PATTERNS = re.compile(
+    r"(?i)\b(" + _CV_CORE_CONDITION_PART + r")\b"
+)
+
+# CKD-only pattern (for identifying trials matched ONLY on CKD conditions)
+_CKD_ONLY_PATTERNS = re.compile(
+    r"(?i)\b(" + _CKD_CONDITION_PART + r")\b"
 )
 
 # ── Intervention drug patterns ──────────────────────────────────────────
@@ -98,6 +119,18 @@ def is_cv_condition(condition_text: str) -> bool:
     return bool(CV_CONDITION_PATTERNS.search(condition_text))
 
 
+def is_ckd_only_condition(condition_text: str) -> bool:
+    """Return True if condition matches CKD/nephropathy but NOT any core CV pattern.
+
+    Used to identify trials that need a CV intervention co-match to be included.
+    """
+    if not condition_text or not isinstance(condition_text, str):
+        return False
+    has_ckd = bool(_CKD_ONLY_PATTERNS.search(condition_text))
+    has_core_cv = bool(_CV_CORE_CONDITION_PATTERNS.search(condition_text))
+    return has_ckd and not has_core_cv
+
+
 def is_cv_intervention(name: str, intervention_type: str = "") -> bool:
     """Return True if intervention name matches any CV drug or device pattern."""
     if not name or not isinstance(name, str):
@@ -124,6 +157,10 @@ def tag_subdomain(conditions: list[str], interventions: list[str]) -> list[str]:
 
 def filter_cardiology_trials(nrows_studies: int | None = None) -> pd.DataFrame:
     """Filter AACT studies to cardiology trials with sub-domain tags.
+
+    P0-1: CKD/nephropathy-only condition matches are only included if they
+    also have a CV intervention match. This prevents pure nephrology trials
+    from inflating the cohort.
 
     Parameters
     ----------
@@ -156,6 +193,21 @@ def filter_cardiology_trials(nrows_studies: int | None = None) -> pd.DataFrame:
     conditions["is_cv"] = conditions["name"].apply(is_cv_condition)
     cv_by_condition = set(conditions[conditions["is_cv"]]["nct_id"].unique())
 
+    # P0-1: Split condition matches into core CV vs CKD-only
+    # A trial is "CKD-only" if ALL its matching conditions are CKD/nephropathy
+    # (no core CV condition match).
+    conditions["is_ckd_only"] = conditions["name"].apply(is_ckd_only_condition)
+    conditions["is_core_cv"] = conditions["name"].apply(
+        lambda x: bool(_CV_CORE_CONDITION_PATTERNS.search(str(x))) if isinstance(x, str) and x else False
+    )
+
+    # Trials that have at least one core CV condition match
+    cv_core_conditions = set(
+        conditions[conditions["is_core_cv"]]["nct_id"].unique()
+    )
+    # Trials matched ONLY on CKD/nephropathy (in cv_by_condition but not cv_core)
+    cv_ckd_only = cv_by_condition - cv_core_conditions
+
     interventions = load_aact_table("interventions", usecols=["nct_id", "intervention_type", "name"])
     interventions = interventions[interventions["nct_id"].isin(nct_ids_in_window)]
     interventions["is_cv"] = interventions.apply(
@@ -163,7 +215,8 @@ def filter_cardiology_trials(nrows_studies: int | None = None) -> pd.DataFrame:
     )
     cv_by_intervention = set(interventions[interventions["is_cv"]]["nct_id"].unique())
 
-    cv_nct_ids = cv_by_condition | cv_by_intervention
+    # P0-1: Final set — CKD-only trials require a CV intervention co-match
+    cv_nct_ids = cv_core_conditions | (cv_ckd_only & cv_by_intervention) | cv_by_intervention
     cv_studies = studies[studies["nct_id"].isin(cv_nct_ids)].copy()
 
     def _match_source(nct_id):
