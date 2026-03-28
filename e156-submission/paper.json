@@ -1,0 +1,96 @@
+{
+  "title": "Structural Flaw Prevalence in 52,765 Cardiology Trials: An Automated Registry Audit",
+  "slug": "cardiotrial-audit",
+  "author": "Mahmood Ahmad",
+  "date": "2026-03-28",
+  "body": "Among 52,765 cardiology trials on ClinicalTrials.gov from 2005 to 2026, what is the prevalence of structural design flaws detectable by automated registry auditing? We applied ten rule-based detectors to the AACT February 2026 snapshot screening protocol fields, posting dates, eligibility criteria, endpoint types, and comparator arms. The primary estimand was structural flaw prevalence computed as a proportion of screened entries. The overall prevalence of any structural flaw was 67.3 percent with a 95% CI of 66.1 to 68.5, ghost protocols affected 61.7 percent, and mean flaws per entry were 1.81. Ghost rates peaked at 79 percent in 2014 then declined, results delay fell from 80 to 40 percent between 2008 and 2022, and endpoint softening dropped from 26 to 16 percent. Nearly two thirds of registered cardiology trials carry at least one structural flaw detectable by automated screening before peer review. This analysis covers registered metadata and cannot detect unreported amendments, selective reporting, or unregistered studies.",
+  "word_count": 156,
+  "sentence_count": 7,
+  "sentences": [
+    {
+      "role": "Question",
+      "text": "Among 52,765 cardiology trials on ClinicalTrials.gov from 2005 to 2026, what is the prevalence of structural design flaws detectable by automated registry auditing?"
+    },
+    {
+      "role": "Dataset",
+      "text": "We applied ten rule-based detectors to the AACT February 2026 snapshot screening protocol fields, posting dates, eligibility criteria, endpoint types, and comparator arms."
+    },
+    {
+      "role": "Method",
+      "text": "The primary estimand was structural flaw prevalence computed as a proportion of screened entries."
+    },
+    {
+      "role": "Primary result",
+      "text": "The overall prevalence of any structural flaw was 67.3 percent with a 95% CI of 66.1 to 68.5, ghost protocols affected 61.7 percent, and mean flaws per entry were 1.81."
+    },
+    {
+      "role": "Robustness",
+      "text": "Ghost rates peaked at 79 percent in 2014 then declined, results delay fell from 80 to 40 percent between 2008 and 2022, and endpoint softening dropped from 26 to 16 percent."
+    },
+    {
+      "role": "Interpretation",
+      "text": "Nearly two thirds of registered cardiology trials carry at least one structural flaw detectable by automated screening before peer review."
+    },
+    {
+      "role": "Boundary",
+      "text": "This analysis covers registered metadata and cannot detect unreported amendments, selective reporting, or unregistered studies."
+    }
+  ],
+  "notes": {
+    "app": "CardioTrialAudit Dashboard v1.0",
+    "data": "AACT ClinicalTrials.gov export (Feb 2026), 52,765 cardiology trials",
+    "code": "https://github.com/mahmood726-cyber/cardio-trial-audit",
+    "doi": "",
+    "version": "1.0",
+    "date": "2026-03-28",
+    "validation": "162/162 tests, 5-persona code review CLEAN"
+  },
+  "type": "methods",
+  "primary_estimand": "Structural flaw prevalence",
+  "validation": {
+    "status": "pass",
+    "checks": [
+      {
+        "name": "single paragraph",
+        "ok": true,
+        "detail": "Body must not contain blank-line paragraph breaks."
+      },
+      {
+        "name": "sentence count",
+        "ok": true,
+        "detail": "Found 7 sentences."
+      },
+      {
+        "name": "word count",
+        "ok": true,
+        "detail": "Found 156 words."
+      },
+      {
+        "name": "no headings",
+        "ok": true,
+        "detail": "No markdown headings allowed in body."
+      },
+      {
+        "name": "no links",
+        "ok": true,
+        "detail": "No links or DOI links allowed in body."
+      },
+      {
+        "name": "result sentence has interval",
+        "ok": true,
+        "detail": "Sentence 4 should include a confidence interval."
+      },
+      {
+        "name": "result sentence has estimand",
+        "ok": true,
+        "detail": "Sentence 4 should name an effect measure or test metric."
+      },
+      {
+        "name": "boundary sentence present",
+        "ok": true,
+        "detail": "Sentence 7 should express a limitation, harm, or scope boundary."
+      }
+    ]
+  },
+  "schema": "e156-v0.2"
+}
