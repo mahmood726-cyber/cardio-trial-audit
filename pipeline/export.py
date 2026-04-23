@@ -116,10 +116,10 @@ def _sanitize_csv_cell(value):
 
 
 def _sanitize_csv_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply CSV formula injection sanitization to all string columns."""
+    """Apply CSV formula injection sanitization to all string-like columns."""
     result = df.copy()
     for col in result.columns:
-        if result[col].dtype == object:
+        if pd.api.types.is_object_dtype(result[col]) or pd.api.types.is_string_dtype(result[col]):
             result[col] = result[col].map(_sanitize_csv_cell)
     return result
 
