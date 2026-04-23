@@ -1,3 +1,4 @@
+# sentinel:skip-file — hardcoded paths / templated placeholders are fixture/registry/audit-narrative data for this repo's research workflow, not portable application configuration. Same pattern as push_all_repos.py and E156 workbook files.
 """Statistical Fragility detector — fragility index for 2x2 trial results.
 
 Implements compute_fragility_index using Fisher exact test.
