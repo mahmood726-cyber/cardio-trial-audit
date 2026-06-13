@@ -885,6 +885,26 @@ class TestHelpers:
         assert _fuzzy_best_match("", ["anything"]) == 0.0
         assert _fuzzy_best_match("anything", []) == 0.0
 
+    def test_fuzzy_best_match_fallback_without_rapidfuzz(self, monkeypatch):
+        """When rapidfuzz is unavailable, an exact match must still score 100
+        and outrank a partial substring match (which scores 80)."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "rapidfuzz" or name.startswith("rapidfuzz."):
+                raise ImportError("forced for test")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        # Exact match -> 100
+        assert _fuzzy_best_match("mortality", ["mortality", "blood pressure"]) == 100.0
+        # Partial substring containment -> 80
+        assert _fuzzy_best_match("mortality", ["all-cause mortality rate"]) == 80.0
+        # No overlap -> 0
+        assert _fuzzy_best_match("mortality", ["blood pressure"]) == 0.0
+
     def test_extract_exclusion_section(self):
         criteria = "Inclusion Criteria: Adults\nExclusion Criteria: No CKD, no cancer"
         exc = _extract_exclusion_section(criteria)

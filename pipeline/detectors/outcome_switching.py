@@ -19,12 +19,17 @@ def _fuzzy_best_match(query: str, candidates: list[str]) -> float:
     try:
         from rapidfuzz import fuzz
     except ImportError:
-        # Fallback: exact substring match
-        query_lower = query.lower()
+        # Fallback when rapidfuzz is unavailable: exact match scores 100,
+        # partial substring containment scores 80, otherwise 0.
+        query_lower = query.lower().strip()
+        best_fallback = 0.0
         for c in candidates:
-            if query_lower in c.lower() or c.lower() in query_lower:
-                return 80.0
-        return 0.0
+            c_lower = c.lower().strip()
+            if query_lower == c_lower:
+                return 100.0
+            if query_lower in c_lower or c_lower in query_lower:
+                best_fallback = max(best_fallback, 80.0)
+        return best_fallback
     best = 0.0
     for c in candidates:
         score = fuzz.token_sort_ratio(query, c)

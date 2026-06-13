@@ -1,7 +1,21 @@
-"""Tests for master table construction."""
+"""Tests for master table construction.
+
+These are integration tests that build the master table from a real AACT
+snapshot. When no AACT source is configured (CARDIO_TRIAL_AUDIT_AACT_ZIP /
+CARDIO_TRIAL_AUDIT_AACT_DIR unset and no auto-discovered snapshot), they are
+skipped rather than failed — the loading logic itself is covered by the
+fixture-driven tests in test_ingest.py.
+"""
 import pandas as pd
 import pytest
+
+from pipeline.ingest import AACT_ZIP_PATH
 from pipeline.master_table import build_master_table
+
+pytestmark = pytest.mark.skipif(
+    AACT_ZIP_PATH is None,
+    reason="No AACT source configured (set CARDIO_TRIAL_AUDIT_AACT_ZIP/_DIR)",
+)
 
 
 def test_master_table_has_required_columns():

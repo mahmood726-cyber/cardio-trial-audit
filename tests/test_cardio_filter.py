@@ -1,6 +1,8 @@
 """Tests for cardiology trial filtering and sub-domain tagging."""
 import pandas as pd
 import pytest
+
+from pipeline.ingest import AACT_ZIP_PATH
 from pipeline.cardio_filter import (
     CV_CONDITION_PATTERNS,
     CV_INTERVENTION_PATTERNS,
@@ -92,6 +94,10 @@ class TestCKDOnlyCondition:
 
 
 class TestFilterPipeline:
+    @pytest.mark.skipif(
+        AACT_ZIP_PATH is None,
+        reason="No AACT source configured (set CARDIO_TRIAL_AUDIT_AACT_ZIP/_DIR)",
+    )
     def test_filter_on_small_sample(self):
         """Run filter on first 1000 studies — should find at least some CV trials."""
         result = filter_cardiology_trials(nrows_studies=1000)
